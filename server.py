@@ -1,84 +1,87 @@
-from node import Node
-from node import FOLLOWER, LEADER
-from flask import Flask, request, jsonify
-import sys
-import logging
+from flask import Flask, request, jsonify, render_template
+from flask_mysqldb import MySQL
 
+# Define constants for task statuses
+TODO = 'TODO'
+IN_PROGRESS = 'IN_PROGRESS'
+COMPLETED = 'COMPLETED'
+
+# Initialize Flask app
 app = Flask(__name__)
 
+# Configure MySQL
+app.config['MYSQL_HOST'] = 'localhost'
+app.config['MYSQL_USER'] = 'root'
+app.config['MYSQL_PASSWORD'] = '####'
+app.config['MYSQL_DB'] = 'tasks'
+mysql = MySQL(app)
 
-# value_get is the flask handle
-@app.route("/request", methods=['GET'])
-def value_get():
-    payload = request.json["payload"]
-    reply = {"code": 'fail', 'payload': payload}
-    if n.status == LEADER:
-        # request handle, reply is a dictionary
-        result = n.handle_get(payload)
-        if result:
-            reply = {"code": "success", "payload": result}
-    elif n.status == FOLLOWER:
-        # redirect request
-        reply["payload"]["message"] = n.leader
-    return jsonify(reply)
+# Define a class to represent a Task
+class Task:
+    def __init__(self, id, title, description, status=TODO):
+        self.id = id
+        self.title = title
+        self.description = description
+        self.status = status
 
+# Define the root route to render the index.html template
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-@app.route("/request", methods=['PUT'])
-def value_put():
-    payload = request.json["payload"]
-    reply = {"code": 'fail'}
+# Define API endpoints for task management
+@app.route("/tasks", methods=['GET'])
+def get_tasks():
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT * FROM tasks")
+    tasks = cur.fetchall()
+    cur.close()
+    serialized_tasks = [{"id": task[0], "title": task[1], "description": task[2], "status": task[3]} for task in tasks]
+    return jsonify(serialized_tasks)
 
-    if n.status == LEADER:
-        # request handle, reply is a dictionary
-        result = n.handle_put(payload)
-        if result:
-            reply = {"code": "success"}
-    elif n.status == FOLLOWER:
-        # redirect request
-        payload["message"] = n.leader
-        reply["payload"] = payload
-    return jsonify(reply)
+@app.route("/tasks", methods=['POST'])
+def create_task():
+    data = request.json
+    title = data['title']
+    description = data['description']
+    status = data.get('status', TODO)
+    cur = mysql.connection.cursor()
+    cur.execute("INSERT INTO tasks (title, description, status) VALUES (%s, %s, %s)", (title, description, status))
+    mysql.connection.commit()
+    cur.close()
+    return "Task created successfully", 201
 
-
-# we reply to vote request
-@app.route("/vote_req", methods=['POST'])
-def vote_req():
-    # also need to let me know whether up-to-date or not
-    term = request.json["term"]
-    commitIdx = request.json["commitIdx"]
-    staged = request.json["staged"]
-    choice, term = n.decide_vote(term, commitIdx, staged)
-    message = {"choice": choice, "term": term}
-    return jsonify(message)
-
-
-@app.route("/heartbeat", methods=['POST'])
-def heartbeat():
-    term, commitIdx = n.heartbeat_follower(request.json)
-    # return anyway, if nothing received by leader, we are dead
-    message = {"term": term, "commitIdx": commitIdx}
-    return jsonify(message)
-
-
-# disable flask logging
-log = logging.getLogger('werkzeug')
-log.disabled = True
-
-if __name__ == "__main__":
-    # python server.py index ip_list
-    if len(sys.argv) == 3:
-        index = int(sys.argv[1])
-        ip_list_file = sys.argv[2]
-        ip_list = []
-        # open ip list file and parse all the ips
-        with open(ip_list_file) as f:
-            for ip in f:
-                ip_list.append(ip.strip())
-        my_ip = ip_list.pop(index)
-
-        http, host, port = my_ip.split(':')
-        # initialize node with ip list and its own ip
-        n = Node(ip_list, my_ip)
-        app.run(host="0.0.0.0", port=int(port), debug=False)
+@app.route("/tasks/<int:task_id>", methods=['GET'])
+def get_task(task_id):
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))
+    task = cur.fetchone()
+    cur.close()
+    if task:
+        return jsonify({"id": task[0], "title": task[1], "description": task[2], "status": task[3]})
     else:
-        print("usage: python server.py <index> <ip_list_file>")
+        return "Task not found", 404
+
+@app.route("/tasks/<int:task_id>", methods=['PUT'])
+def update_task(task_id):
+    data = request.json
+    title = data.get('title')
+    description = data.get('description')
+    status = data.get('status')
+    cur = mysql.connection.cursor()
+    cur.execute("UPDATE tasks SET title = %s, description = %s, status = %s WHERE id = %s", (title, description, status, task_id))
+    mysql.connection.commit()
+    cur.close()
+    return "Task updated successfully"
+
+@app.route("/tasks/<int:task_id>", methods=['DELETE'])
+def delete_task(task_id):
+    cur = mysql.connection.cursor()
+    cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+    mysql.connection.commit()
+    cur.close()
+    return "Task deleted successfully", 200
+
+# Run the Flask app
+if __name__ == "__main__":
+    app.run(debug=True)

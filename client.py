@@ -1,75 +1,42 @@
-import sys, requests
+import sys
+import requests
 
 
-def redirectToLeader(server_address, message):
-    type = message["type"]
-    # looping until someone tells he is the leader
-    while True:
-        # switching between "get" and "put"
-        if type == "get":
-            try:
-                response = requests.get(server_address,
-                                        json=message,
-                                        timeout=1)
-            except Exception as e:
-                return e
+def get_all_tasks(addr):
+    try:
+        response = requests.get(addr)
+        if response.status_code == 200:
+            tasks = response.json()
+            for task in tasks:
+                print(task)
         else:
-            try:
-                response = requests.put(server_address,
-                                        json=message,
-                                        timeout=1)
-            except Exception as e:
-                return e
+            print("Error: Unable to retrieve tasks")
+            print("Response status code:", response.status_code)
+            print("Response content:", response.content)
+    except Exception as e:
+        print("An error occurred:", e)
 
-        # if valid response and an address in the "message" section in reply
-        # redirect server_address to the potential leader
-        if response.status_code == 200 and "payload" in response.json():
-            payload = response.json()["payload"]
-            if "message" in payload:
-                server_address = payload["message"] + "/request"
-            else:
-                break
+def get_task(addr, task_id):
+    try:
+        response = requests.get(f"{addr}/{task_id}")
+        if response.status_code == 200:
+            task = response.json()
+            print(task)
         else:
-            break
-    # if type == "get":
-    return response.json()
-    # else:
-    #     return response
-
-
-# client put request
-def put(addr, key, value):
-    server_address = addr + "/request"
-    payload = {'key': key, 'value': value}
-    message = {"type": "put", "payload": payload}
-    # redirecting till we find the leader, in case of request during election
-    print(redirectToLeader(server_address, message))
-
-
-# client get request
-def get(addr, key):
-    server_address = addr + "/request"
-    payload = {'key': key}
-    message = {"type": "get", "payload": payload}
-    # redirecting till we find the leader, in case of request during election
-    print(redirectToLeader(server_address, message))
-
+            print("Error: Unable to retrieve task")
+            print("Response status code:", response.status_code)
+            print("Response content:", response.content)
+    except Exception as e:
+        print("An error occurred:", e)
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3:
-        # addr, key
-        # get
+    if len(sys.argv) == 2:
+        addr = sys.argv[1] + "/tasks"
+        get_all_tasks(addr)
+    elif len(sys.argv) == 3:
+       
         addr = sys.argv[1]
-        key = sys.argv[2]
-        get(addr, key)
-    elif len(sys.argv) == 4:
-        # addr, key value
-        # put
-        addr = sys.argv[1]
-        key = sys.argv[2]
-        val = sys.argv[3]
-        put(addr, key, val)
+        task_id = sys.argv[2]
+        get_task(addr, task_id)
     else:
-        print("PUT usage: python3 client.py address 'key' 'value'")
-        print("GET usage: python3 client.py address 'key'")
-        print("Format: address: http://ip:port")
+        print("Usage: python client.py http://localhost:5000")
